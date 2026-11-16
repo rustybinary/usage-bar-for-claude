@@ -27,7 +27,7 @@
 ◔ 5h 50%  7d 21%
 ```
 
-- **◔** a ring that fills up as the current session is used
+- **◎** two rings that fill up as you use Claude: the **outer ring is the session**, the **inner ring is the week**, each in its colour band
 - **5h** the current session (the rolling 5-hour window)
 - **7d** the weekly limit across all models
 
