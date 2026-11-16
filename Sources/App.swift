@@ -259,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var anchorLoadStartedAt: Date?
     private var cachedOrg = UserDefaults.standard.string(forKey: "orgId") ?? ""
     private var activity: NSObjectProtocol?
+    private var appearanceObservation: NSKeyValueObservation?
     private var probeStartedAt: Date?
     private var loginMode = false
     private var didAutoPrompt = false
@@ -277,6 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         statusItem.button?.font = titleFont
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.imageHugsTitle = true
+        appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                self?.renderTitle()
+            }
+        }
         statusItem.button?.toolTip = "Claude usage: current session (5h) and weekly limit (7d)"
 
         menu = NSMenu()
@@ -358,8 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if let s = session { parts.append((label: "5h", window: s)) }
         if let w = week { parts.append((label: "7d", window: w)) }
 
-        // The ring shows the current session (or the week, if that is all there is).
-        button.image = ringIcon(fraction: (session ?? week).map { $0.percent / 100 })
+        button.image = dualRingIcon(session: session?.percent, week: week?.percent)
 
         if parts.isEmpty {
             if signedOut {
@@ -388,33 +393,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         button.attributedTitle = text
     }
 
-    /// Menu bar icon: a ring that fills clockwise as the limit is used up.
-    /// It is a template image, so macOS tints it to suit the menu bar.
-    private func ringIcon(fraction: Double?) -> NSImage {
-        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+    /// Menu bar icon: two rings that fill clockwise as the limits are used up.
+    /// Outer ring: the current session. Inner ring: the week. Each filled arc takes
+    /// its band colour; the empty track follows the menu bar's light or dark look.
+    private func dualRingIcon(session: Double?, week: Double?) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
             let center = NSPoint(x: rect.midX, y: rect.midY)
-            let radius: CGFloat = 5.75
-            let lineWidth: CGFloat = 2.5
+            let lineWidth: CGFloat = 2.0
+            let isDark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let base = isDark ? NSColor.white : NSColor.black
+            let noData = session == nil && week == nil
+            let trackColor = base.withAlphaComponent(noData ? 0.55 : 0.3)
 
-            let track = NSBezierPath()
-            track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
-            track.lineWidth = lineWidth
-            NSColor.black.withAlphaComponent(fraction == nil ? 0.55 : 0.3).setStroke()
-            track.stroke()
+            func ring(radius: CGFloat, percent: Double?) {
+                let track = NSBezierPath()
+                track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
+                track.lineWidth = lineWidth
+                trackColor.setStroke()
+                track.stroke()
 
-            if let fraction = fraction, fraction > 0 {
-                let filled = CGFloat(min(max(fraction, 0.04), 1))
+                guard let percent = percent, percent > 0 else { return }
+                let filled = CGFloat(min(max(percent / 100, 0.04), 1))
                 let arc = NSBezierPath()
                 arc.appendArc(withCenter: center, radius: radius,
                               startAngle: 90, endAngle: 90 - 360 * filled, clockwise: true)
                 arc.lineWidth = lineWidth
                 arc.lineCapStyle = .round
-                NSColor.black.setStroke()
+                levelColor(percent).setStroke()
                 arc.stroke()
             }
+
+            ring(radius: 7.0, percent: session)
+            ring(radius: 3.5, percent: week)
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = false
+        image.accessibilityDescription = "Claude usage"
         return image
     }
 
